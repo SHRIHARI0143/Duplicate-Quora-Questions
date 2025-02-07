@@ -1,9 +1,9 @@
 import re
 from bs4 import BeautifulSoup
 import distance
+from fuzzywuzzy import fuzz
 import pickle
 import numpy as np
-from nltk.corpus import stopwords
 
 cv = pickle.load(open('cv.pkl','rb'))
 
@@ -21,10 +21,10 @@ def test_total_words(q1,q2):
 
 def test_fetch_token_features(q1, q2):
     SAFE_DIV = 0.0001
-    
-    STOP_WORDS = stopwords.words("english")
 
-    token_features = [0.0] * 4
+    STOP_WORDS = pickle.load(open('stopwords.pkl','rb'))
+
+    token_features = [0.0] * 8
 
     # Converting the Sentence into Tokens:
     q1_tokens = q1.split()
@@ -37,17 +37,31 @@ def test_fetch_token_features(q1, q2):
     q1_words = set([word for word in q1_tokens if word not in STOP_WORDS])
     q2_words = set([word for word in q2_tokens if word not in STOP_WORDS])
 
+    # Get the stopwords in Questions
+    q1_stops = set([word for word in q1_tokens if word in STOP_WORDS])
+    q2_stops = set([word for word in q2_tokens if word in STOP_WORDS])
+
     # Get the common non-stopwords from Question pair
     common_word_count = len(q1_words.intersection(q2_words))
 
+    # Get the common stopwords from Question pair
+    common_stop_count = len(q1_stops.intersection(q2_stops))
+
+    # Get the common Tokens from Question pair
+    common_token_count = len(set(q1_tokens).intersection(set(q2_tokens)))
+
     token_features[0] = common_word_count / (min(len(q1_words), len(q2_words)) + SAFE_DIV)
     token_features[1] = common_word_count / (max(len(q1_words), len(q2_words)) + SAFE_DIV)
+    token_features[2] = common_stop_count / (min(len(q1_stops), len(q2_stops)) + SAFE_DIV)
+    token_features[3] = common_stop_count / (max(len(q1_stops), len(q2_stops)) + SAFE_DIV)
+    token_features[4] = common_token_count / (min(len(q1_tokens), len(q2_tokens)) + SAFE_DIV)
+    token_features[5] = common_token_count / (max(len(q1_tokens), len(q2_tokens)) + SAFE_DIV)
 
     # Last word of both question is same or not
-    token_features[2] = int(q1_tokens[-1] == q2_tokens[-1])
+    token_features[6] = int(q1_tokens[-1] == q2_tokens[-1])
 
     # First word of both question is same or not
-    token_features[3] = int(q1_tokens[0] == q2_tokens[0])
+    token_features[7] = int(q1_tokens[0] == q2_tokens[0])
 
     return token_features
 
@@ -72,6 +86,24 @@ def test_fetch_length_features(q1, q2):
     length_features[2] = len(strs[0]) / (min(len(q1), len(q2)) + 1)
 
     return length_features
+
+
+def test_fetch_fuzzy_features(q1, q2):
+    fuzzy_features = [0.0] * 4
+
+    # fuzz_ratio
+    fuzzy_features[0] = fuzz.QRatio(q1, q2)
+
+    # fuzz_partial_ratio
+    fuzzy_features[1] = fuzz.partial_ratio(q1, q2)
+
+    # token_sort_ratio
+    fuzzy_features[2] = fuzz.token_sort_ratio(q1, q2)
+
+    # token_set_ratio
+    fuzzy_features[3] = fuzz.token_set_ratio(q1, q2)
+
+    return fuzzy_features
 
 
 def preprocess(q):
@@ -269,10 +301,14 @@ def query_point_creator(q1, q2):
     length_features = test_fetch_length_features(q1, q2)
     input_query.extend(length_features)
 
+    # fetch fuzzy features
+    fuzzy_features = test_fetch_fuzzy_features(q1, q2)
+    input_query.extend(fuzzy_features)
+
     # bow feature for q1
     q1_bow = cv.transform([q1]).toarray()
 
     # bow feature for q2
     q2_bow = cv.transform([q2]).toarray()
 
-    return np.hstack((np.array(input_query).reshape(1, 14), q1_bow, q2_bow))
+    return np.hstack((np.array(input_query).reshape(1, 22), q1_bow, q2_bow))
